@@ -32,10 +32,9 @@ const FileScreen = () => {
   const isDarkMode = useColorScheme() === 'dark';
   const [albums, setAlbums] = useState([] as PhotoIdentifier[]);
   const [ count, setCount ] = useState(0);
-  const [ uploaded, setUploaded ] = useState<PhotoIdentifier>();
   const [ uploading, setUploading ] = useState(false);
   const { isConnected } = useSocket();
-  const { uploadFile } = useUpload();
+  const { uploaded, uploadFile } = useUpload();
   useKeepAwake();
 
   useEffect(() => {
@@ -44,7 +43,9 @@ const FileScreen = () => {
 
   useEffect(() => {
     if (uploaded) {
-      setCount(count + 1);
+      const newCount = count + 1;
+      setCount(newCount);
+      if (newCount < albums.length) uploadFile(albums[newCount]);
     }
   }, [uploaded])
 
@@ -52,7 +53,6 @@ const FileScreen = () => {
     console.log('Loading albums / videos');
     const albums: PhotoIdentifier[] = [];
     const initialData = await getPhotos({ first: PHOTOS_PER_LOAD, assetType: 'All' })
-    console.log(initialData.edges[0])
     let next = initialData.page_info.has_next_page;
     let cursor = initialData.page_info.end_cursor;
     albums.push.apply(albums, initialData.edges);
@@ -65,12 +65,8 @@ const FileScreen = () => {
     setAlbums(albums);
   }
 
-  const uploadPhotos = async () => {
-    for (let i = 0; i < albums.length; i++ ) {
-      const res = await uploadFile(albums[i]);
-      setUploaded(albums[i]);
-      console.log(res.text());
-    }
+  const uploadPhotos = () => {
+    uploadFile(albums[0]);
   }
 
   const ImageList = useMemo(() => { 
