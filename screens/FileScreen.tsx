@@ -8,8 +8,7 @@
  * @format
  */
 
-import React, {useCallback, useEffect, useMemo, useState, type PropsWithChildren} from 'react';
-import { readDirAssets, MainBundlePath, readFileAssets, readDir, LibraryDirectoryPath, DocumentDirectoryPath, DownloadDirectoryPath, CachesDirectoryPath } from 'react-native-fs';
+import React, {useEffect, useMemo, useState} from 'react';
 import {
   Image,
   SafeAreaView,
@@ -21,28 +20,21 @@ import {
   Button,
 } from 'react-native';
 
-import {
-  Colors,
-  Header,
-} from 'react-native/Libraries/NewAppScreen';
-import { getAlbums, getPhotos, PhotoIdentifier } from "@react-native-community/cameraroll";
+import { getPhotos, PhotoIdentifier } from "@react-native-community/cameraroll";
 import { FlatList } from 'react-native-gesture-handler';
 import useSocket from '../hooks/useSocket';
 import useUpload from '../hooks/useUpload';
 import { useKeepAwake } from '@sayem314/react-native-keep-awake';
 
 const PHOTOS_PER_LOAD = 250;
-const MAX_SIZE = 10 * 1024 * 1024; // 10MB
-const MAX_REQUESTS = 1; // 10MB
 
 const FileScreen = () => {
   const isDarkMode = useColorScheme() === 'dark';
   const [albums, setAlbums] = useState([] as PhotoIdentifier[]);
   const [ count, setCount ] = useState(0);
-  const [ uploadCount, setUploadCount ] = useState(0);
-  const [ uploadQueue, setUploadQueue ] = useState([] as PhotoIdentifier[]);
-  const [ fetchResponse, setFetchResponse ] = useState({} as Response);
-  const { socket, isConnected } = useSocket();
+  const [ uploaded, setUploaded ] = useState<PhotoIdentifier>();
+  const [ uploading, setUploading ] = useState(false);
+  const { isConnected } = useSocket();
   const { uploadFile } = useUpload();
   useKeepAwake();
 
@@ -51,30 +43,16 @@ const FileScreen = () => {
   }, [])
 
   useEffect(() => {
-    if (fetchResponse.status === 200) {
+    if (uploaded) {
       setCount(count + 1);
     }
-    if (uploadCount) {
-      setUploadCount(uploadCount - 1);
-      console.log('Releasing');
-    }
-}, [fetchResponse])
-
-  useEffect(() => {
-    if (uploadQueue.length && uploadCount < MAX_REQUESTS) {
-      const photo = uploadQueue.pop();
-      setUploadQueue([...uploadQueue]);
-      if (photo) {
-        uploadPhoto(photo);
-        setUploadCount(uploadCount + 1);
-      }
-    }
-  }, [uploadCount, uploadQueue]);
+  }, [uploaded])
 
   const getImages = async () => {
-    console.log('Loading albums');
+    console.log('Loading albums / videos');
     const albums: PhotoIdentifier[] = [];
-    const initialData = await getPhotos({ first: PHOTOS_PER_LOAD, assetType: 'Photos' })
+    const initialData = await getPhotos({ first: PHOTOS_PER_LOAD, assetType: 'All' })
+    console.log(initialData.edges[0])
     let next = initialData.page_info.has_next_page;
     let cursor = initialData.page_info.end_cursor;
     albums.push.apply(albums, initialData.edges);
@@ -87,18 +65,15 @@ const FileScreen = () => {
     setAlbums(albums);
   }
 
-  const uploadPhoto = async (photo: PhotoIdentifier) => {
-    try {
-      console.log('Uploading', `${photo.node.image.filename} - ${photo.node.image.fileSize}`);  
-      const res = await uploadFile(photo);
-      setFetchResponse(res);
-    } catch (err: any) {
-      console.log(err.message);
+  const uploadPhotos = async () => {
+    for (let i = 0; i < albums.length; i++ ) {
+      const res = await uploadFile(albums[i]);
+      setUploaded(albums[i]);
+      console.log(res.text());
     }
   }
 
   const ImageList = useMemo(() => { 
-    console.log('rendering')
     return <FlatList
       data={albums}
       numColumns={2}
@@ -116,21 +91,40 @@ const FileScreen = () => {
   </>)};
 
   return (
-    <SafeAreaView>
+    <SafeAreaView style={styles.container}>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-      <Button title="Upload" disabled={!isConnected} onPress={() => setUploadQueue([...albums])}></Button>
-      { !!albums.length && <Text>Uploading {count} of {albums.length}</Text>}
-      { !albums.length 
-        ? <Text>Loading images</Text>
-        : <>{ ImageList }</>
-      }
+      <Button title="Upload all" disabled={!isConnected} onPress={() => {setUploading(true); uploadPhotos()}}></Button>
+      <View style={styles.container}>
+        { !!albums.length && uploading && <>
+          <Text style={styles.text}>Uploading {count} of {albums.length}</Text>
+        </>}
+        { !!albums.length && uploading && !!uploaded && <>
+          <Image style={styles.uploadedItem} source={{ uri: uploaded.node.image.uri }}/>
+          <Text style={styles.text}>{uploaded.node.image.filename}</Text>
+        </>}
+        { !albums.length 
+          ? <Text style={styles.text}>Loading images</Text>
+          : <>{ ImageList }</>
+        }
+      </View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  container: {
+    marginVertical: 8,
+  },
   photoContainer: {
     margin: 16,
+  },
+  button: {
+    textAlign: 'center',
+    fontSize: 24
+  },
+  text: {
+    textAlign: 'center',
+    fontSize: 18
   },
   flex: {
     flex: 1,
@@ -140,6 +134,13 @@ const styles = StyleSheet.create({
     height: 100,
     minWidth: 100,
     maxWidth: 1000,
+    justifyContent: 'center',
+    margin: 8,
+  },
+  uploadedItem: {
+    height: 100,
+    width: 150,
+    alignSelf: 'center',
     justifyContent: 'center',
     margin: 8,
   },
